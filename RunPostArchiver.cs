@@ -19,7 +19,7 @@ namespace reddit_scraper
         private Dictionary<string, DateTime> _active_requests;
         void UpdateActiveRequests() => 
             _active_requests = _active_requests
-                .Where(x => (DateTime.Now - x.Value).TotalSeconds < 120)
+                .Where(x => (DateTime.Now - x.Value).TotalSeconds < 60)
                 .Select(x => x)
                 .ToDictionary(x => x.Key, x => x.Value);
         async Task<T> Throttler<T>(Func<Task<T>> getFn)
