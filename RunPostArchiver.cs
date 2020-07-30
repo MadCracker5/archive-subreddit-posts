@@ -165,7 +165,7 @@ namespace reddit_scraper
         static IEnumerable<DateRange> BuildUtcs()
         {
             DateTime.Today.AddSeconds(86399);
-            var cutoff = new DateTime(2020, 07, 27);
+            var cutoff = new DateTime(2007, 07, 27);
             var now = DateTime.Today;
             var total_days = (now - cutoff).TotalDays;
             var utc_list = new List<DateRange>();
