@@ -150,7 +150,7 @@ namespace reddit_scraper
         async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
             _subreddit_target = configuration.GetSection("subreddit").Value;
-            _limit_per_request = configuration.GetSection("limit").Value;
+            _limit_per_request = configuration.GetSection("post_limit_per_request").Value;
             _output_directory = configuration.GetSection("out_directory").Value;
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
@@ -162,7 +162,7 @@ namespace reddit_scraper
             await Task.WhenAll(postArchiveTasks.ToArray());
         }
 #nullable disable
-        static IEnumerable<DateRange> BuildUtcs()
+        static IEnumerable<DateRange> BuildDateRanges()
         {
             DateTime.Today.AddSeconds(86399);
             var cutoff = new DateTime(2007, 07, 27);
@@ -183,7 +183,7 @@ namespace reddit_scraper
         {
             var serviceCollection = new ServiceCollection();
             ConfigureServices(serviceCollection);
-            var dateRanges = BuildUtcs();
+            var dateRanges = BuildDateRanges();
             GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
         }
 
