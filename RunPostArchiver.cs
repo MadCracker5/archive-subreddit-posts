@@ -16,16 +16,37 @@ namespace reddit_scraper
         private string _subreddit_target;
         private string _limit_per_request;
         private string _output_directory;
-        async Task<string> Get(string url)
+        private Dictionary<string, DateTime> _active_requests;
+        void UpdateActiveRequests() => 
+            _active_requests = _active_requests
+                .Where(x => (DateTime.Now - x.Value).TotalSeconds > 120)
+                .Select(x => x)
+                .ToDictionary(x => x.Key, x => x.Value);
+        async Task<T> Throttler<T>(Func<Task<T>> getFn)
         {
-            using var client = new HttpClient();
-            try {
-                return await client.GetStringAsync(url);
-            } catch (HttpRequestException e) {
-                Console.WriteLine("Pushshift API is not available right now because - {0}", e.Message);
-                throw e;
+            UpdateActiveRequests();
+            while (_active_requests.Count() >= 200) {
+                await Task.Delay(500);
+                UpdateActiveRequests();
             }
+            var key = Guid.NewGuid().ToString();
+            _active_requests.Add(key, DateTime.Now);
+            var response = await getFn();
+            _active_requests.Remove(key);
+            return response;
         }
+
+        async Task<string> Get(string url) =>
+             await Throttler(async () =>
+             {
+                 using var client = new HttpClient();
+                 try {
+                     return await client.GetStringAsync(url);
+                 } catch (HttpRequestException e) {
+                     Console.WriteLine("Pushshift API is not available right now because - {0}", e.Message);
+                     throw e;
+                 }
+             });
 #nullable enable
         async Task<IEnumerable<Post>?> GetSubredditPostsAsync(DateRange dateScope)
         {
@@ -140,6 +161,8 @@ namespace reddit_scraper
 
         async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
+            _active_requests = new Dictionary<string, DateTime>();
+
             _subreddit_target = configuration.GetSection("subreddit").Value;
             _limit_per_request = configuration.GetSection("post_limit_per_request").Value;
             _output_directory = configuration.GetSection("out_directory").Value;
