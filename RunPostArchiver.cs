@@ -16,24 +16,21 @@ namespace reddit_scraper
         private string _subreddit_target;
         private string _limit_per_request;
         private string _output_directory;
-        async Task<string?> Get(string url)
+        async Task<string> Get(string url)
         {
             using var client = new HttpClient();
             try {
                 return await client.GetStringAsync(url);
             } catch (HttpRequestException e) {
-                Console.WriteLine("Message :{0} ", e.Message);
+                Console.WriteLine("Pushshift API is not available right now because - {0}", e.Message);
+                throw e;
             }
-            return null;
         }
 #nullable enable
         async Task<IEnumerable<Post>?> GetSubredditPostsAsync(DateRange dateScope)
         {
             var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, _limit_per_request, dateScope);
             var res = await Get(url);
-            if (res == null) {
-                return null;
-            }
             try {
                 return JsonConvert.DeserializeObject<IEnumerable<Post>>(res);
             } catch (Exception e) {
@@ -45,9 +42,6 @@ namespace reddit_scraper
         {
             var url = PushShiftApiUrls.GetCommentIdsUrl(post.Id);
             var res = await Get(url);
-            if (res == null) {
-                return null;
-            }
             try {
                 return new UnresolvedPostArhive
                 {
@@ -63,9 +57,6 @@ namespace reddit_scraper
         {
             var url = PushShiftApiUrls.GetCommentsUrl(commentIds);
             var res = await Get(url);
-            if (res == null) {
-                return null;
-            }
             try {
                 return JsonConvert.DeserializeObject<Comment[]>(res);
             } catch (Exception e) {
