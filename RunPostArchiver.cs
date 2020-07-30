@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace reddit_scraper
 {
-    public class PostArchiver
+    public class RunPostArchiver
     {
         public static IConfigurationRoot configuration;
         private string _subreddit_target;
