@@ -16,12 +16,12 @@ namespace reddit_scraper
         private string _subreddit_target;
         private string _limit_per_request;
         private string _output_directory;
-        private Dictionary<string, DateTime> _active_requests;
+        private List<DateTime> _active_requests;
         void UpdateActiveRequests() => 
             _active_requests = _active_requests
-                .Where(x => (DateTime.Now - x.Value).TotalSeconds < 60)
+                .Where(x => (DateTime.Now - x).TotalSeconds < 60)
                 .Select(x => x)
-                .ToDictionary(x => x.Key, x => x.Value);
+                .ToList();
         async Task<T> Throttler<T>(Func<Task<T>> getFn)
         {
             UpdateActiveRequests();
@@ -29,10 +29,8 @@ namespace reddit_scraper
                 await Task.Delay(500);
                 UpdateActiveRequests();
             }
-            var key = Guid.NewGuid().ToString();
-            _active_requests.Add(key, DateTime.Now);
+            _active_requests.Add(DateTime.Now);
             var response = await getFn();
-            _active_requests.Remove(key);
             return response;
         }
 
@@ -161,7 +159,7 @@ namespace reddit_scraper
 
         async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
-            _active_requests = new Dictionary<string, DateTime>();
+            _active_requests = new List<DateTime>();
 
             _subreddit_target = configuration.GetSection("subreddit").Value;
             _limit_per_request = configuration.GetSection("post_limit_per_request").Value;
