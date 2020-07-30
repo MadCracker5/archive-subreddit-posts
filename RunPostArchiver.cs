@@ -155,9 +155,15 @@ namespace reddit_scraper
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
+            var i = 0;
             var postArchiveTasks = new List<Task>();
             foreach (var date in dates) {
                 postArchiveTasks.Add(GetPostArchivesInRange(date));
+                if (i % 5 == 0 && i != 0) {
+                    await Task.WhenAll(postArchiveTasks.ToArray());
+                    postArchiveTasks = new List<Task>()
+                }
+                i++;
             }
             await Task.WhenAll(postArchiveTasks.ToArray());
         }
