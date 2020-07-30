@@ -1,4 +1,4 @@
-# archive-subreddit-posts
+# Subreddit Post Archiver
 
 Archives every post & every comment in every post in a given subreddit into the data format of the Pushshift API.
 
