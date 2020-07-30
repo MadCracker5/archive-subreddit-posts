@@ -161,7 +161,7 @@ namespace reddit_scraper
                 postArchiveTasks.Add(GetPostArchivesInRange(date));
                 if (i % 5 == 0 && i != 0) {
                     await Task.WhenAll(postArchiveTasks.ToArray());
-                    postArchiveTasks = new List<Task>()
+                    postArchiveTasks = new List<Task>();
                 }
                 i++;
             }
@@ -174,16 +174,16 @@ namespace reddit_scraper
             var cutoff = new DateTime(2007, 07, 27);
             var now = DateTime.Today;
             var total_days = (now - cutoff).TotalDays;
-            var utc_list = new List<DateRange>();
+            var date_list = new List<DateRange>();
             for (var i = 0; i < total_days; i++) {
                 now = now.AddDays(-i);
-                utc_list.Add(new DateRange
+                date_list.Add(new DateRange
                 {
                     Start = now,
                     End = now.AddSeconds(86399)
                 });
             }
-            return utc_list;
+            return date_list;
         }
         public void Run()
         {
