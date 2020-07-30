@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace reddit_scraper
@@ -16,40 +15,12 @@ namespace reddit_scraper
         private string _subreddit_target;
         private string _limit_per_request;
         private string _output_directory;
-        private List<DateTime> _active_requests;
-        void UpdateActiveRequests() => 
-            _active_requests = _active_requests
-                .Where(x => (DateTime.Now - x).TotalSeconds < 60)
-                .Select(x => x)
-                .ToList();
-        async Task<T> Throttler<T>(Func<Task<T>> getFn)
-        {
-            UpdateActiveRequests();
-            while (_active_requests.Count() >= 200) {
-                await Task.Delay(500);
-                UpdateActiveRequests();
-            }
-            _active_requests.Add(DateTime.Now);
-            var response = await getFn();
-            return response;
-        }
-
-        async Task<string> Get(string url) =>
-             await Throttler(async () =>
-             {
-                 using var client = new HttpClient();
-                 try {
-                     return await client.GetStringAsync(url);
-                 } catch (HttpRequestException e) {
-                     Console.WriteLine("Pushshift API is not available right now because - {0}", e.Message);
-                     throw e;
-                 }
-             });
+        private HttpTools _http_client;
 #nullable enable
         async Task<IEnumerable<Post>?> GetSubredditPostsAsync(DateRange dateScope)
         {
             var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, _limit_per_request, dateScope);
-            var res = await Get(url);
+            var res = await _http_client.Get(url);
             try {
                 return JsonConvert.DeserializeObject<IEnumerable<Post>>(res);
             } catch (Exception e) {
@@ -60,7 +31,7 @@ namespace reddit_scraper
         async Task<UnresolvedPostArhive?> GetCommentIdsAsync(Post post)
         {
             var url = PushShiftApiUrls.GetCommentIdsUrl(post.Id);
-            var res = await Get(url);
+            var res = await _http_client.Get(url);
             try {
                 return new UnresolvedPostArhive
                 {
@@ -75,7 +46,7 @@ namespace reddit_scraper
         async Task<Comment[]?> GetCommentsAsync(IEnumerable<string> commentIds)
         {
             var url = PushShiftApiUrls.GetCommentsUrl(commentIds);
-            var res = await Get(url);
+            var res = await _http_client.Get(url);
             try {
                 return JsonConvert.DeserializeObject<Comment[]>(res);
             } catch (Exception e) {
@@ -159,8 +130,7 @@ namespace reddit_scraper
 
         async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
-            _active_requests = new List<DateTime>();
-
+            _http_client = new HttpTools();
             _subreddit_target = configuration.GetSection("subreddit").Value;
             _limit_per_request = configuration.GetSection("post_limit_per_request").Value;
             _output_directory = configuration.GetSection("out_directory").Value;
