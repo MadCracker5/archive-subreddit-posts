@@ -53,7 +53,7 @@ namespace reddit_scraper.Http
             var task = client.GetAsync(url);
             _ = task.ContinueWith(async s =>
             {
-                var totalMs = 1700 - (DateTime.Now - time).TotalMilliseconds;
+                var totalMs = 2000 - (DateTime.Now - time).TotalMilliseconds;
                 if (totalMs > 0) {
                     await Task.Delay((int)totalMs);
                 }
