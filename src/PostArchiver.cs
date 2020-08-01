@@ -22,7 +22,6 @@ namespace reddit_scraper.Src
     public class PostArchiver : IPostArchiver
     {
         private Func<int, int, string> _get_init_string;
-        private readonly Interval _interval;
         private readonly bool _verbosity;
         private readonly string _subreddit_target;
         private readonly string _output_directory;
@@ -34,8 +33,6 @@ namespace reddit_scraper.Src
         public PostArchiver(IServiceProvider provider)
         {
             var config = provider.GetService<IConfigurationRoot>();
-
-            _interval = DateConfig.ParseInterval(config);
             _subreddit_target = config.GetSection("subreddit").Value;
             _output_directory = config.GetSection("out_directory").Value;
             _serviceProvider = provider;
@@ -179,20 +176,29 @@ namespace reddit_scraper.Src
             Console.WriteLine($"\nFinished with {numUnresolved} posts.");
             return results;
         }
-        async Task GetPostArchivesInRange(DayDateRange dateRanges)
+        async Task GetPostArchivesInRange(DateRange dateScope)
         {
             var postArchives = new List<PostArchive>();
+            var currentPostArchives = await GetPostArchives(dateScope);
             var numIters = 0;
-            foreach (var dateRange in dateRanges.Intervals) {
-                NextSubredditDetails(dateRange, numIters);
-                var currentPostArchives = await GetPostArchives(dateRange);
+            while (currentPostArchives != null) {
                 numIters++;
-                if (currentPostArchives != null) {
-                    postArchives.AddRange(currentPostArchives);
+                postArchives.AddRange(currentPostArchives);
+                var nextCutoff = currentPostArchives.OrderBy(x => x.Post.CreatedUtc).FirstOrDefault().Post.CreatedUtc;
+                if (nextCutoff < DateRange.TotalSecondsFromEpoch(dateScope.After)) {
+                    break;
                 }
+                NextSubredditDetails(dateScope, numIters);
+                dateScope = new DateRange
+                {
+                    After = dateScope.After,
+                    Before = DateRange.UnixTimeStampToDateTime((double)nextCutoff)
+                };
+                currentPostArchives = await GetPostArchives(dateScope);
+                Console.WriteLine();
             }
             var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
-            var fn = $"{_output_directory}/{dateRanges.Date.ToShortDateString()}.json";
+            var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.json";
             File.WriteAllText(fn, serializedPostArchive);
             Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
         }
@@ -201,17 +207,18 @@ namespace reddit_scraper.Src
         /// </summary>
         /// <param name="dates"></param>
         /// <returns></returns>
-        async Task GetSubredditArchive(IEnumerable<DayDateRange> dayRanges)
+        async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
-            _total_dates = dayRanges.Count();
+            _total_dates = dates.Count();
             _current_date_idx = 0;
-            foreach (var dayRange in dayRanges) {
+            foreach (var date in dates) {
                 _current_comment_total = 0;
                 _current_post_total = 0;
-                await GetPostArchivesInRange(dayRange);
+                NextSubredditDetails(date);
+                await GetPostArchivesInRange(date);
                 _current_date_idx++;
             }
         }
@@ -228,38 +235,29 @@ namespace reddit_scraper.Src
             var dateRanges = BuildDateRanges();
             GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
         }
-
         /// <summary>
-        /// Divide up our operations into days and days into the specified time intervals so that each output file is delineated by days & requests delineated by the specified interval.
+        /// Divide up our operations into days so that each output file is delineated by days.
         /// </summary>
         /// <returns></returns>
-        IEnumerable<DayDateRange> BuildDateRanges()
+        IEnumerable<DateRange> BuildDateRanges()
         {
             var config = _serviceProvider.GetService<IConfigurationRoot>();
-            var before = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.Before);
-            var after = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.After);
+            var before = DateConfig.ParseSection(config.GetSection("before"), DateConfigEnum.Before);
+            var after = DateConfig.ParseSection(config.GetSection("after"), DateConfigEnum.After);
             PrintDefaultInfo(after, before);
             var cutoff = after;
             var now = before;
             var total_days = (now - cutoff).TotalDays;
-            var dayDateRange = new List<DayDateRange>();
+            var date_list = new List<DateRange>();
             for (var _ = 0; _ < total_days; _++) {
                 now = now.AddDays(-1);
-                var dateList = new List<DateRange>();
-                for (var y = 0; y < 48; y++) {
-                    now = _interval.GetNextTimestep(now, y);
-                    dateList.Add(new DateRange
-                    {
-                        After = DateRange.TotalSecondsFromEpoch(now),
-                        Before = _interval.OffsetBeforeFn(now, y)
-                    });
-                }
-                dayDateRange.Add(new DayDateRange { 
-                    Date = now,
-                    Intervals = dateList
+                date_list.Add(new DateRange
+                {
+                    After = now,
+                    Before = now.AddSeconds(86399)
                 });
             }
-            return dayDateRange;
+            return date_list.OrderByDescending(x => x.Before);
         }
         void NextSubredditDetails(DateRange dateScope, int numIters = 0)
         {
@@ -268,9 +266,9 @@ namespace reddit_scraper.Src
             Console.WriteLine($"\n{string.Join("", Enumerable.Repeat("/", 44))}\n");
             Console.Write("Date: ");
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"{DateRange.UnixTimeStampToDateTime(dateScope.Before).ToShortDateString()}");
+            Console.WriteLine($"{dateScope.Before.ToShortDateString()}");
             Console.ResetColor();
-            Console.Write($"Round({_interval.Value} {_interval.Type} per): ");
+            Console.Write("Round: ");
             Console.ForegroundColor = ConsoleColor.Blue;
             Console.WriteLine($"#{numIters}");
             Console.ResetColor();
