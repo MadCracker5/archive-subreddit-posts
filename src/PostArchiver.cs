@@ -13,13 +13,13 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace reddit_scraper.Src
+namespace reddit_scraper.DataHolders.PostResponseParser
 {
-    public interface IPostArchiver
+    public interface IPostArchiver2
     {
         public void Run();
     }
-    public class PostArchiver : IPostArchiver
+    public class PostArchiver2 : IPostArchiver2
     {
         private Func<int, int, string> _get_init_string;
         private readonly Interval _interval;
@@ -40,7 +40,7 @@ namespace reddit_scraper.Src
         private long _before;
         private long _after;
         private DateTime CurrentRequestOldestDateDt;
-        public PostArchiver(IServiceProvider provider)
+        public PostArchiver2(IServiceProvider provider)
         {
             var config = provider.GetService<IConfigurationRoot>();
 
@@ -54,14 +54,14 @@ namespace reddit_scraper.Src
             }
         }
 #nullable enable
-        async Task<Post[]?> GetSubredditPostsAsync()
+        async Task<PostResponse?> GetSubredditPostsAsync()
         {
             var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, _before);
             try {
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
                     .MakeRequestAsync(url);
-                return PostResponse.FromJson(jsonString).Posts;
+                return PostResponse.FromJson(jsonString);
             } catch (Exception e) {
                 if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
@@ -153,23 +153,23 @@ namespace reddit_scraper.Src
             };
         }
 
-        async Task<IEnumerable<PostArchive>?> GetPostArchives()
+        async Task<PostArchiveHolder?> GetPostArchives()
         {
             Console.Write($"\nSearching for posts...\t");
-            var posts = await GetSubredditPostsAsync();
-            if (posts == null || posts.Length == 0) {
+            var postResponse = await GetSubredditPostsAsync();
+            if (postResponse == null || postResponse.Posts.Length == 0) {
                 return null;
             }
-            _current_post_total += posts.Length;
-            Console.Write($"{posts.Length} posts found.\n");
+            _current_post_total += postResponse.Posts.Length;
+            Console.Write($"{postResponse.Posts.Length} posts found.\n");
             Console.Write($"\nFinding comment ids for posts...\t");
-            var unresolvedPostArchives = await ResolveCommentIds(posts);
+            var unresolvedPostArchives = await ResolveCommentIds(postResponse.Posts);
             var postsWithComments = unresolvedPostArchives.Where(x => x.CommentIds != null && x.CommentIds.Any()).Select(x => x.CommentIds.Count());
             var numComments = postsWithComments.Any()
                 ? postsWithComments.Aggregate((a, b) => a + b)
                 : 0;
             _current_comment_total += numComments;
-            Console.WriteLine($"\n{numComments} total comment ids found in {posts.Length} posts.");
+            Console.WriteLine($"\n{numComments} total comment ids found in {postResponse.Posts.Length} posts.");
             var numUnresolved = unresolvedPostArchives.Count();
             var postArchiveTasks = new List<Task<PostArchive>>();
             var numCompleted = 0;
@@ -180,13 +180,17 @@ namespace reddit_scraper.Src
                 _ = task.ContinueWith(s =>
                 {
                     numCompleted++;
-                    progress.Report((float)numCompleted / (float)posts.Length);
+                    progress.Report((float)numCompleted / (float)postResponse.Posts.Length);
                 });
                 postArchiveTasks.Add(task);
             }
             var results = await Task.WhenAll(postArchiveTasks.ToArray());
             Console.WriteLine($"\nFinished with {numUnresolved} posts.");
-            return results;
+            return new PostArchiveHolder
+            { 
+                Posts = results,
+                Metadata = postResponse.Metadata
+            };
         }
         async Task GetPostArchivesInRange()
         {
@@ -195,15 +199,13 @@ namespace reddit_scraper.Src
                 var numIters = 0;
                 _current_comment_total = 0;
                 _current_post_total = 0;
-                var tt = CurrentRequestOldestDateDt.Date;
-                var ttt = CurrentDateDt.Date;
                 while (CurrentRequestOldestDateDt.Date == CurrentDateDt.Date) {
                     var currentPostArchives = await GetPostArchives();
                     if (currentPostArchives == null) {
                         continue;
                     }
-                    CurrentRequestOldestDateDt = DateRange.UnixTimeStampToDateTime(currentPostArchives.OrderBy(x => x.Post.CreatedUtc).Select(x => x).FirstOrDefault().Post.CreatedUtc);
-                    postArchives.AddRange(currentPostArchives);
+                    //CurrentRequestOldestDateDt = currentPostArchives.Metadata.Ranges.FirstOrDefault().Range.CreatedUtc.Gt;
+                    postArchives.AddRange(currentPostArchives.Posts);
                     numIters++;
                 }
                 var currentDayItems = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).Date == CurrentDateDt).Select(x => x);
