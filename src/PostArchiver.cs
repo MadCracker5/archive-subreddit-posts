@@ -55,14 +55,14 @@ namespace reddit_scraper.Src
                 return null;
             }
         }
-        async Task<UnresolvedPostArhive?> GetCommentIdsAsync(Post post)
+        async Task<UnresolvedPostArchive?> GetCommentIdsAsync(Post post)
         {
             var url = PushShiftApiUrls.GetCommentIdsUrl(post.Id);
             try {
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
                     .MakeRequestAsync(url);
-                return new UnresolvedPostArhive
+                return new UnresolvedPostArchive
                 {
                     Post = post,
                     CommentIds = JsonConvert.DeserializeObject<PushshiftResponse<string>>(jsonString).Data
@@ -85,9 +85,10 @@ namespace reddit_scraper.Src
                 return null;
             }
         }
-        async Task<IEnumerable<UnresolvedPostArhive>> ResolveCommentIds(Post[] posts)
+        async Task<IEnumerable<UnresolvedPostArchive>> ResolveCommentIds(Post[] posts)
         {
-            var commentIdsTasks = new List<Task<UnresolvedPostArhive?>>();
+            //return posts.Select(x => new UnresolvedPostArchive { Post = x, CommentIds = new string[] { } });
+            var commentIdsTasks = new List<Task<UnresolvedPostArchive?>>();
             var numCompleted = 0;
             using var progress = new ProgressBar();
             foreach (var post in posts) {
@@ -100,7 +101,7 @@ namespace reddit_scraper.Src
                 commentIdsTasks.Add(task);
             }
             var postArchives = await Task.WhenAll(commentIdsTasks.ToArray());
-            var postArchivesNotNull = new List<UnresolvedPostArhive>();
+            var postArchivesNotNull = new List<UnresolvedPostArchive>();
             foreach (var postArchive in postArchives) {
                 if (postArchive == null) {
                     continue;
@@ -109,8 +110,9 @@ namespace reddit_scraper.Src
             }
             return postArchivesNotNull;
         }
-        async Task<PostArchive> ResolveComments(UnresolvedPostArhive postArchive)
+        async Task<PostArchive> ResolveComments(UnresolvedPostArchive postArchive)
         {
+            //return new PostArchive { Post = postArchive.Post, Comments = new Comment[] { } };
             var postLength = postArchive.CommentIds.Count();
             if (postLength == 0) {
                 return new PostArchive { Post = postArchive.Post };
@@ -150,7 +152,10 @@ namespace reddit_scraper.Src
             Console.Write($"{posts.Length} posts found.\n");
             Console.Write($"\nFinding comment ids for posts...\t");
             var unresolvedPostArchives = await ResolveCommentIds(posts);
-            var numComments = unresolvedPostArchives.Where(x => x.CommentIds.Any()).Select(x => x.CommentIds.Count()).Aggregate((a, b) => a + b);
+            var postsWithComments = unresolvedPostArchives.Where(x => x.CommentIds != null && x.CommentIds.Any()).Select(x => x.CommentIds.Count());
+            var numComments = postsWithComments.Any()
+                ? postsWithComments.Aggregate((a, b) => a + b)
+                : 0;
             _current_comment_total += numComments;
             Console.WriteLine($"\n{numComments} total comment ids found in {posts.Length} posts.");
             var numUnresolved = unresolvedPostArchives.Count();
@@ -190,6 +195,7 @@ namespace reddit_scraper.Src
                     Before = DateRange.UnixTimeStampToDateTime((double)nextCutoff)
                 };
                 currentPostArchives = await GetPostArchives(dateScope);
+                Console.WriteLine();
             }
             var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
             var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.json";

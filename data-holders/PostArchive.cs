@@ -10,7 +10,7 @@ namespace reddit_scraper.DataHolders
         public Post Post { get; set; }
         public IEnumerable<Comment> Comments { get; set; }
     }
-    public class UnresolvedPostArhive : PostArchive
+    public class UnresolvedPostArchive : PostArchive
     {
         public IEnumerable<string> CommentIds { get; set; }
     }
