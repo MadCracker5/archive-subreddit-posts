@@ -3,7 +3,12 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30011.22
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "reddit_scraper", "reddit_scraper.csproj", "{3ABBD0B1-7BC2-4DBD-A09B-EDAEDBD9E0C9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "reddit_scraper", "reddit_scraper.csproj", "{3ABBD0B1-7BC2-4DBD-A09B-EDAEDBD9E0C9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{71068DD3-D8DA-48EA-AB81-5D544E65FA3E}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

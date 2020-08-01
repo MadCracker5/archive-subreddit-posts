@@ -5,6 +5,7 @@ using reddit_scraper.DataHolders;
 using reddit_scraper.DataHolders.CommentResponseParser;
 using reddit_scraper.DataHolders.PostResponseParser;
 using reddit_scraper.Http;
+using reddit_scraper.tools;
 using reddit_scraper.Tools;
 using System;
 using System.Collections.Generic;
@@ -20,18 +21,28 @@ namespace reddit_scraper.Src
     }
     public class PostArchiver : IPostArchiver
     {
+        private Func<int, int, string> _get_init_string;
+        private readonly bool _verbosity;
         private readonly string _subreddit_target;
         private readonly string _output_directory;
         private readonly IServiceProvider _serviceProvider;
+        private int _current_comment_total;
+        private int _current_post_total;
+        private int _current_date_idx;
+        private int _total_dates;
         public PostArchiver(IServiceProvider provider)
         {
             var config = provider.GetService<IConfigurationRoot>();
             _subreddit_target = config.GetSection("subreddit").Value;
             _output_directory = config.GetSection("out_directory").Value;
             _serviceProvider = provider;
+            var verbosity = config.GetSection("verbosity").Value;
+            if (int.TryParse(verbosity, out int verbosityInt)) {
+                _verbosity = verbosityInt != 0;
+            }
         }
 #nullable enable
-        async Task<IEnumerable<Post>?> GetSubredditPostsAsync(DateRange dateScope)
+        async Task<Post[]?> GetSubredditPostsAsync(DateRange dateScope)
         {
             var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, dateScope);
             try {
@@ -40,7 +51,7 @@ namespace reddit_scraper.Src
                     .MakeRequestAsync(url);
                 return PostResponse.FromJson(jsonString).Posts;
             } catch (Exception e) {
-                Console.WriteLine(e.ToString());
+                if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
             }
         }
@@ -57,7 +68,7 @@ namespace reddit_scraper.Src
                     CommentIds = JsonConvert.DeserializeObject<PushshiftResponse<string>>(jsonString).Data
                 };
             } catch (Exception e) {
-                Console.WriteLine(e.ToString());
+                if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
             }
         }
@@ -70,15 +81,23 @@ namespace reddit_scraper.Src
                     .MakeRequestAsync(url);
                 return CommentResponse.FromJson(jsonString).Comments;
             } catch (Exception e) {
-                Console.WriteLine(e.ToString());
+                if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
             }
         }
-        async Task<IEnumerable<UnresolvedPostArhive>> ResolveCommentIds(IEnumerable<Post> posts)
+        async Task<IEnumerable<UnresolvedPostArhive>> ResolveCommentIds(Post[] posts)
         {
             var commentIdsTasks = new List<Task<UnresolvedPostArhive?>>();
+            var numCompleted = 0;
+            using var progress = new ProgressBar();
             foreach (var post in posts) {
-                commentIdsTasks.Add(GetCommentIdsAsync(post));
+                var task = GetCommentIdsAsync(post);
+                _ = task.ContinueWith(_ =>
+                {
+                    numCompleted++;
+                    progress.Report((float)numCompleted / (float)posts.Length);
+                });
+                commentIdsTasks.Add(task);
             }
             var postArchives = await Task.WhenAll(commentIdsTasks.ToArray());
             var postArchivesNotNull = new List<UnresolvedPostArhive>();
@@ -97,18 +116,20 @@ namespace reddit_scraper.Src
                 return new PostArchive { Post = postArchive.Post };
             }
             if (postLength < 273) {
+                var earlyComments = await GetCommentsAsync(postArchive.CommentIds);
                 return new PostArchive
                 {
                     Post = postArchive.Post,
-                    Comments = await GetCommentsAsync(postArchive.CommentIds)
+                    Comments = earlyComments ?? Enumerable.Empty<Comment>()
                 };
             }
-            var chopper = postLength / 270;
-            var cutOff = postLength / chopper;
+            var chopper = (float)postLength / 270f;
+            var cutOff = (int)Math.Round((float)postLength / chopper);
             var commentTasks = new List<Task<Comment[]?>>();
             for (var i = 0; i < chopper; i++) {
                 var cur_sel = postArchive.CommentIds.Skip(i * cutOff).Take((i + 1) * cutOff);
-                commentTasks.Add(GetCommentsAsync(cur_sel.ToArray()));
+                var task = GetCommentsAsync(cur_sel.ToArray());
+                commentTasks.Add(task);
             }
             var comments = await Task.WhenAll(commentTasks.ToArray());
             return new PostArchive
@@ -120,38 +141,60 @@ namespace reddit_scraper.Src
 
         async Task<IEnumerable<PostArchive>?> GetPostArchives(DateRange dateScope)
         {
+            Console.Write($"\nSearching for posts...\t");
             var posts = await GetSubredditPostsAsync(dateScope);
-            if (posts == null) {
+            if (posts == null || posts.Length == 0) {
                 return null;
             }
-            var unresolvedPostArhives = await ResolveCommentIds(posts);
+            _current_post_total += posts.Length;
+            Console.Write($"{posts.Length} posts found.\n");
+            Console.Write($"\nFinding comment ids for posts...\t");
+            var unresolvedPostArchives = await ResolveCommentIds(posts);
+            var numComments = unresolvedPostArchives.Where(x => x.CommentIds.Any()).Select(x => x.CommentIds.Count()).Aggregate((a, b) => a + b);
+            _current_comment_total += numComments;
+            Console.WriteLine($"\n{numComments} total comment ids found in {posts.Length} posts.");
+            var numUnresolved = unresolvedPostArchives.Count();
             var postArchiveTasks = new List<Task<PostArchive>>();
-            foreach (var unresolvedPostArhive in unresolvedPostArhives) {
-                postArchiveTasks.Add(ResolveComments(unresolvedPostArhive));
+            var numCompleted = 0;
+            using var progress = new ProgressBar();
+            Console.Write("\nComment ids -> Comments...\t");
+            foreach (var unresolvedPostArchive in unresolvedPostArchives) {
+                var task = ResolveComments(unresolvedPostArchive);
+                _ = task.ContinueWith(s =>
+                {
+                    numCompleted++;
+                    progress.Report((float)numCompleted / (float)posts.Length);
+                });
+                postArchiveTasks.Add(task);
             }
-            return await Task.WhenAll(postArchiveTasks.ToArray());
+            var results = await Task.WhenAll(postArchiveTasks.ToArray());
+            Console.WriteLine($"\nFinished with {numUnresolved} posts.");
+            return results;
         }
         async Task GetPostArchivesInRange(DateRange dateScope)
         {
             var postArchives = new List<PostArchive>();
             var currentPostArchives = await GetPostArchives(dateScope);
+            var numIters = 0;
             while (currentPostArchives != null) {
+                numIters++;
                 postArchives.AddRange(currentPostArchives);
                 var nextCutoff = currentPostArchives.OrderBy(x => x.Post.CreatedUtc).FirstOrDefault().Post.CreatedUtc;
                 if (nextCutoff < DateRange.TotalSecondsFromEpoch(dateScope.After)) {
                     break;
                 }
+                NextSubredditDetails(dateScope, numIters);
                 dateScope = new DateRange
                 {
-                    After = DateRange.UnixTimeStampToDateTime((double)nextCutoff),
-                    Before = dateScope.Before
+                    After = dateScope.After,
+                    Before = DateRange.UnixTimeStampToDateTime((double)nextCutoff)
                 };
                 currentPostArchives = await GetPostArchives(dateScope);
             }
             var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
-            var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.zip";
+            var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.json";
             File.WriteAllText(fn, serializedPostArchive);
-            Console.WriteLine($"Wrote {postArchives.Count()} Archives to {fn}");
+            Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
         }
         /// <summary>
         /// For each date range in our iterable of date ranges, process up to 5 concurrently into archives corresponding to the day they are.
@@ -163,26 +206,29 @@ namespace reddit_scraper.Src
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
-            var i = 0;
-            var postArchiveTasks = new List<Task>();
+            _total_dates = dates.Count();
+            _current_date_idx = 0;
             foreach (var date in dates) {
-                postArchiveTasks.Add(GetPostArchivesInRange(date));
-                if (i % 5 == 0 && i != 0) {
-                    await Task.WhenAll(postArchiveTasks.ToArray());
-                    postArchiveTasks = new List<Task>();
-                }
-                i++;
+                _current_comment_total = 0;
+                _current_post_total = 0;
+                NextSubredditDetails(date);
+                await GetPostArchivesInRange(date);
+                _current_date_idx++;
             }
-            await Task.WhenAll(postArchiveTasks.ToArray());
         }
         void PrintDefaultInfo(DateTime after, DateTime before)
         {
             var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {after.ToShortDateString()} and before {before.ToShortDateString()}";
             var secondLine = $"Files will be written to {AppDomain.CurrentDomain.BaseDirectory}{_output_directory}";
             var stars = string.Join("", Enumerable.Repeat("*", firstLine.Length));
-            Console.WriteLine($"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\n");
+            _get_init_string = (Func<int, int, string>)((int dateIdx, int totalDates) => $"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\nDate: {dateIdx}/{totalDates}");
         }
 #nullable disable
+        public void Run()
+        {
+            var dateRanges = BuildDateRanges();
+            GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
+        }
         /// <summary>
         /// Divide up our operations into days so that each output file is delineated by days.
         /// </summary>
@@ -205,12 +251,30 @@ namespace reddit_scraper.Src
                     Before = now.AddSeconds(86399)
                 });
             }
-            return date_list;
+            return date_list.OrderByDescending(x => x.Before);
         }
-        public void Run()
+        void NextSubredditDetails(DateRange dateScope, int numIters = 0)
         {
-            var dateRanges = BuildDateRanges();
-            GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
+            Console.Clear();
+            Console.WriteLine(_get_init_string(_current_date_idx, _total_dates));
+            Console.WriteLine($"\n{string.Join("", Enumerable.Repeat("/", 44))}\n");
+            Console.Write("Date: ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"{dateScope.Before.ToShortDateString()}");
+            Console.ResetColor();
+            Console.Write("Round: ");
+            Console.ForegroundColor = ConsoleColor.Blue;
+            Console.WriteLine($"#{numIters}");
+            Console.ResetColor();
+            Console.Write($"Posts: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"{_current_post_total}");
+            Console.ResetColor();
+            Console.Write($"Comments: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"{_current_comment_total}");
+            Console.ResetColor();
+            Console.WriteLine($"\n{string.Join("", Enumerable.Repeat("/", 44))}\n");
         }
     }
 }
