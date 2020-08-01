@@ -90,7 +90,7 @@ namespace reddit_scraper.Src
         }
         async Task<IEnumerable<UnresolvedPostArchive>> ResolveCommentIds(Post[] posts)
         {
-            //return posts.Select(x => new UnresolvedPostArchive { Post = x, CommentIds = new string[] { } });
+            return posts.Select(x => new UnresolvedPostArchive { Post = x, CommentIds = new string[] { } });
             var commentIdsTasks = new List<Task<UnresolvedPostArchive?>>();
             var numCompleted = 0;
             using var progress = new ProgressBar();
@@ -115,7 +115,7 @@ namespace reddit_scraper.Src
         }
         async Task<PostArchive> ResolveComments(UnresolvedPostArchive postArchive)
         {
-            //return new PostArchive { Post = postArchive.Post, Comments = new Comment[] { } };
+            return new PostArchive { Post = postArchive.Post, Comments = new Comment[] { } };
             var postLength = postArchive.CommentIds.Count();
             if (postLength == 0) {
                 return new PostArchive { Post = postArchive.Post };
@@ -246,7 +246,7 @@ namespace reddit_scraper.Src
             for (var _ = 0; _ < total_days; _++) {
                 now = now.AddDays(-1);
                 var dateList = new List<DateRange>();
-                for (var y = 0; y < 48; y++) {
+                for (var y = 0; y < _interval.DailyTimestep; y++) {
                     now = _interval.GetNextTimestep(now, y);
                     dateList.Add(new DateRange
                     {
@@ -270,9 +270,9 @@ namespace reddit_scraper.Src
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"{DateRange.UnixTimeStampToDateTime(dateScope.Before).ToShortDateString()}");
             Console.ResetColor();
-            Console.Write($"Round({_interval.Value} {_interval.Type} per): ");
+            Console.Write($"Round: ");
             Console.ForegroundColor = ConsoleColor.Blue;
-            Console.WriteLine($"#{numIters}");
+            Console.WriteLine($"{numIters}/{_interval.DailyTimestep}");
             Console.ResetColor();
             Console.Write($"Posts: ");
             Console.ForegroundColor = ConsoleColor.Green;
