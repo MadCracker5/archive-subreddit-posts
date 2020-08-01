@@ -339,3 +339,4 @@ ASALocalRun/
 # BeatPulse healthcheck temp database
 healthchecksdb
 /_build/netcoreapp3.1/post_archives
+/_build/netcoreapp3.1/netcoreapp3.1.zip
