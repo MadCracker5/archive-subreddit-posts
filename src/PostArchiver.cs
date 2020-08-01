@@ -31,11 +31,20 @@ namespace reddit_scraper.Src
         private int _current_post_total;
         private int _current_date_idx;
         private int _total_dates;
+        private DateTime CurrentDateDt { get; set; }
+        //private DateTime CurrentRequestOldestDateDt {
+        //    get {
+        //        return DateRange.UnixTimeStampToDateTime(CurrentRequestOldestDateUtc);
+        //    }
+        //}
+        private long _before;
+        private long _after;
+        private DateTime CurrentRequestOldestDateDt;
         public PostArchiver(IServiceProvider provider)
         {
             var config = provider.GetService<IConfigurationRoot>();
 
-            _interval = DateConfig.ParseInterval(config);
+            _interval = Interval.GetInterval(config);
             _subreddit_target = config.GetSection("subreddit").Value;
             _output_directory = config.GetSection("out_directory").Value;
             _serviceProvider = provider;
@@ -45,9 +54,9 @@ namespace reddit_scraper.Src
             }
         }
 #nullable enable
-        async Task<Post[]?> GetSubredditPostsAsync(DateRange dateScope)
+        async Task<Post[]?> GetSubredditPostsAsync()
         {
-            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, dateScope);
+            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, _before);
             try {
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
@@ -144,10 +153,10 @@ namespace reddit_scraper.Src
             };
         }
 
-        async Task<IEnumerable<PostArchive>?> GetPostArchives(DateRange dateScope)
+        async Task<IEnumerable<PostArchive>?> GetPostArchives()
         {
             Console.Write($"\nSearching for posts...\t");
-            var posts = await GetSubredditPostsAsync(dateScope);
+            var posts = await GetSubredditPostsAsync();
             if (posts == null || posts.Length == 0) {
                 return null;
             }
@@ -179,45 +188,77 @@ namespace reddit_scraper.Src
             Console.WriteLine($"\nFinished with {numUnresolved} posts.");
             return results;
         }
-        async Task GetPostArchivesInRange(DayDateRange dateRanges)
+        async Task GetPostArchivesInRange()
         {
             var postArchives = new List<PostArchive>();
-            var numIters = 0;
-            foreach (var dateRange in dateRanges.Intervals) {
-                NextSubredditDetails(dateRange, numIters);
-                var currentPostArchives = await GetPostArchives(dateRange);
-                numIters++;
-                if (currentPostArchives != null) {
+            while (DateRange.TotalSecondsFromEpoch(CurrentDateDt) > _after) {
+                var numIters = 0;
+                _current_comment_total = 0;
+                _current_post_total = 0;
+                var tt = CurrentRequestOldestDateDt.Date;
+                var ttt = CurrentDateDt.Date;
+                while (CurrentRequestOldestDateDt.Date == CurrentDateDt.Date) {
+                    var currentPostArchives = await GetPostArchives();
+                    if (currentPostArchives == null) {
+                        continue;
+                    }
+                    CurrentRequestOldestDateDt = DateRange.UnixTimeStampToDateTime(currentPostArchives.OrderBy(x => x.Post.CreatedUtc).Select(x => x).FirstOrDefault().Post.CreatedUtc);
                     postArchives.AddRange(currentPostArchives);
+                    numIters++;
                 }
+                var currentDayItems = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).Date == CurrentDateDt).Select(x => x);
+                var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
+                var fn = $"{_output_directory}/{CurrentDateDt.ToShortDateString()}.json";
+                File.WriteAllText(fn, serializedPostArchive);
+                Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
+                CurrentDateDt = CurrentRequestOldestDateDt;
+                postArchives = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).Date == CurrentDateDt).Select(x => x).ToList();
+                _current_date_idx++;
             }
-            var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
-            var fn = $"{_output_directory}/{dateRanges.Date.ToShortDateString()}.json";
-            File.WriteAllText(fn, serializedPostArchive);
-            Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
+            //foreach (var dateRange in dateRanges.Intervals) {
+            //    NextSubredditDetails(dateRange, numIters);
+            //_current_request_oldest_date = currentPostArchives.OrderBy(x => x.Post.CreatedUtc).Select(x => x).FirstOrDefault().Post.CreatedUtc;
+            //if (DateRange.UnixTimeStampToDateTime(_current_request_oldest_date).Date != _current_day) {
+
+            //}
+            //    numIters++;
+            //    if (currentPostArchives != null) {
+            //        postArchives.AddRange(currentPostArchives);
+            //    }
+            //}
+            //var test = dateRanges.Intervals.Select(x => new DateTime[2] { DateRange.UnixTimeStampToDateTime(x.After), DateRange.UnixTimeStampToDateTime(x.Before) });
+            //var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
+            //var fn = $"{_output_directory}/{dateRanges.Date.ToShortDateString()}.json";
+            //File.WriteAllText(fn, serializedPostArchive);
+            //Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
         }
         /// <summary>
         /// For each date range in our iterable of date ranges, process up to 5 concurrently into archives corresponding to the day they are.
         /// </summary>
         /// <param name="dates"></param>
         /// <returns></returns>
-        async Task GetSubredditArchive(IEnumerable<DayDateRange> dayRanges)
+        async Task GetSubredditArchive()
         {
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
-            _total_dates = dayRanges.Count();
-            _current_date_idx = 0;
-            foreach (var dayRange in dayRanges) {
-                _current_comment_total = 0;
-                _current_post_total = 0;
-                await GetPostArchivesInRange(dayRange);
-                _current_date_idx++;
-            }
+            //_total_dates = dayRanges.Count();
+            //_current_date_idx = 0;
+            //while (_current_request_oldest_date > _after) {
+            //    //if (_current_request_oldest_date )
+            //    await GetPostArchivesInRange();
+            //}
+            await GetPostArchivesInRange();
+            //foreach (var dayRange in dayRanges) {
+            _current_comment_total = 0;
+            _current_post_total = 0;
+            //    await GetPostArchivesInRange(dayRange);
+            //    _current_date_idx++;
+            //}
         }
-        void PrintDefaultInfo(DateTime after, DateTime before)
+        void PrintDefaultInfo()
         {
-            var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {after.ToShortDateString()} and before {before.ToShortDateString()}";
+            var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {DateRange.UnixTimeStampToDateTime(_after).ToShortDateString()} and before {DateRange.UnixTimeStampToDateTime(_before).ToShortDateString()}";
             var secondLine = $"Files will be written to {AppDomain.CurrentDomain.BaseDirectory}{_output_directory}";
             var stars = string.Join("", Enumerable.Repeat("*", firstLine.Length));
             _get_init_string = (Func<int, int, string>)((int dateIdx, int totalDates) => $"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\nDate: {dateIdx}/{totalDates}");
@@ -225,41 +266,49 @@ namespace reddit_scraper.Src
 #nullable disable
         public void Run()
         {
-            var dateRanges = BuildDateRanges();
-            GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
+            BuildDateRanges();
+            PrintDefaultInfo();
+            GetSubredditArchive().GetAwaiter().GetResult();
         }
 
         /// <summary>
         /// Divide up our operations into days and days into the specified time intervals so that each output file is delineated by days & requests delineated by the specified interval.
         /// </summary>
         /// <returns></returns>
-        IEnumerable<DayDateRange> BuildDateRanges()
+        void BuildDateRanges()
         {
             var config = _serviceProvider.GetService<IConfigurationRoot>();
-            var before = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.Before);
-            var after = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.After);
-            PrintDefaultInfo(after, before);
-            var cutoff = after;
-            var now = before;
-            var total_days = (now - cutoff).TotalDays;
-            var dayDateRange = new List<DayDateRange>();
-            for (var _ = 0; _ < total_days; _++) {
-                now = now.AddDays(-1);
-                var dateList = new List<DateRange>();
-                for (var y = 0; y < _interval.DailyTimestep; y++) {
-                    now = _interval.GetNextTimestep(now, y);
-                    dateList.Add(new DateRange
-                    {
-                        After = DateRange.TotalSecondsFromEpoch(now),
-                        Before = _interval.OffsetBeforeFn(now, y)
-                    });
-                }
-                dayDateRange.Add(new DayDateRange { 
-                    Date = now,
-                    Intervals = dateList
-                });
-            }
-            return dayDateRange;
+            var beforeDate = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.Before);
+            _before = DateRange.TotalSecondsFromEpoch(beforeDate);
+            _after = DateRange.TotalSecondsFromEpoch(DateConfig.ParseDateCutoffSection(config, DateConfigEnum.After));
+            CurrentDateDt = beforeDate.Date;
+            CurrentRequestOldestDateDt = beforeDate;
+            //PrintDefaultInfo(after, before);
+            //var cutoff = after;
+            //var now = before;
+            //var total_days = (now - cutoff).TotalDays;
+            //var dayDateRange = new List<DayDateRange>();
+            //for (var _ = 0; _ < total_days; _++) {
+            //    now = now.AddDays(-1);
+            //    var dateList = new List<DateRange>();
+            //    var intervalNow = now;
+            //    for (var y = 0; y < _interval.DailyTimestep; y++) {
+            //        intervalNow = _interval.GetNextTimestep(intervalNow, y);
+            //        dateList.Add(new DateRange
+            //        {
+            //            After = DateRange.TotalSecondsFromEpoch(now),
+            //            Before = _interval.OffsetBeforeFn(now, y)
+            //        });
+            //        var test = dateList[y].GetDt();
+            //        Console.WriteLine(test);
+            //        //var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
+            //    }
+            //    dayDateRange.Add(new DayDateRange { 
+            //        Date = now,
+            //        Intervals = dateList
+            //    });
+            //}
+            //return dayDateRange;
         }
         void NextSubredditDetails(DateRange dateScope, int numIters = 0)
         {

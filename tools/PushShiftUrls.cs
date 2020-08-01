@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace reddit_scraper.Tools
 {
@@ -9,9 +10,10 @@ namespace reddit_scraper.Tools
         private const string _Comments = "search/comment";
         private const string _CommentIds = "submission/comment_ids";
 #nullable enable
-        public static string GetSubredditPostsUrl(string subreddit, DateRange dateScope)
+        public static string GetSubredditPostsUrl(string subreddit, long dateScope)
         {
-            var beforeTimestamp = $"&before={dateScope.Before}&after={dateScope.After}";
+            //var beforeTimestamp = $"&before={dateScope.Before}&after={dateScope.After}";
+            var beforeTimestamp = $"&before={dateScope}";
             var tt = string.Format("{0}/{1}/?size=100{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
             return tt;
         }
