@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using reddit_scraper.http;
 using reddit_scraper.Http;
 using reddit_scraper.Src;
 using System;

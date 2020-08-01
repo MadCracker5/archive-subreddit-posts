@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using reddit_scraper.DataHolders;
+using reddit_scraper.http;
 using System;
 using System.Net;
 using System.Net.Http;
@@ -23,11 +24,13 @@ namespace reddit_scraper.Http
     }
     public class HttpClientThrottler : IHttpClientThrottler
     {
-        private Lock _locker = new Lock();
+        private readonly Lock _locker = new Lock();
         public readonly SemaphoreSlim _per_second_throttler;
         private readonly bool _verbosity = false;
+        private UserAgent _user_agent;
         public HttpClientThrottler(IServiceProvider provider)
         {
+            _user_agent = new UserAgent(provider);
             var verbosity = provider.GetRequiredService<Microsoft.Extensions.Configuration.IConfigurationRoot>().GetSection("verbosity").Value;
             if (int.TryParse(verbosity, out int verbosityInt)) {
                 _verbosity = verbosityInt != 0;
@@ -45,7 +48,7 @@ namespace reddit_scraper.Http
                 Thread.Sleep(1000);
             }
             using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36");
+            client.DefaultRequestHeaders.Add("User-Agent", _user_agent.Agent);
             var time = DateTime.Now;
             var task = client.GetAsync(url);
             _ = task.ContinueWith(async s =>
@@ -65,6 +68,9 @@ namespace reddit_scraper.Http
                     Console.WriteLine($"\n\nPushshift is complaning about too many requests so now we sleep for a few minutes...");
                     lock (_locker) {
                         _locker.Value = true;
+                        lock (_user_agent) {
+                            _user_agent.GetNewUserAgent();
+                        }
                         Thread.Sleep(120000);
                         _locker.Value = false;
                     }
