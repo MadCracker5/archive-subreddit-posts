@@ -77,8 +77,7 @@ namespace reddit_scraper.Http
                         _locker.Value = false;
                     }
                     Console.WriteLine($"Trying again @ {url}...");
-                    var result = await MakeRequestAsync(url);
-                    return result;
+                    return await MakeRequestAsync(url);
                 }
                 if (_verbosity) {
                     Console.WriteLine($"{url}");

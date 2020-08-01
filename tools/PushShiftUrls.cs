@@ -11,8 +11,9 @@ namespace reddit_scraper.Tools
 #nullable enable
         public static string GetSubredditPostsUrl(string subreddit, DateRange dateScope)
         {
-            var beforeTimestamp = $"&before={DateRange.TotalSecondsFromEpoch(dateScope.Before)}&after={DateRange.TotalSecondsFromEpoch(dateScope.After)}";
-            return string.Format("{0}/{1}/?size=500{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
+            var beforeTimestamp = $"&before={dateScope.Before}&after={dateScope.After}";
+            var tt = string.Format("{0}/{1}/?size=100{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
+            return tt;
         }
 #nullable disable
         public static string GetCommentIdsUrl(string postId) =>
@@ -20,4 +21,5 @@ namespace reddit_scraper.Tools
         public static string GetCommentsUrl(IEnumerable<string> commentIds) =>
             $"{_Base}/{_Comments}/?ids={string.Join(',', commentIds)}";
     }
-}
+} // https://api.pushshift.io/reddit/search/submission/?size=100&subreddit=funny&before=1594598441&after=1594598400
+                                                                                         
