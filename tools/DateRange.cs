@@ -11,5 +11,9 @@ namespace reddit_scraper.Tools
         public static DateTime UnixTimeStampToDateTime(double unixTimeStamp) =>
              new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                 .AddSeconds(unixTimeStamp);
+        public DateTime[] GetDt()
+        {
+            return new DateTime[2] { DateRange.UnixTimeStampToDateTime(After), DateRange.UnixTimeStampToDateTime(Before) };
+        }
     }
 }
