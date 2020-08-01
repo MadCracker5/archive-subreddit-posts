@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using reddit_scraper.Tools;
 using System;
 
 namespace reddit_scraper.DataHolders
