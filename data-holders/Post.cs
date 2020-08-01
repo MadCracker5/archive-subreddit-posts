@@ -1,6 +1,7 @@
 ﻿
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using reddit_scraper.data_holders;
 using System;
 using System.Globalization;
 
