@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace reddit_scraper
+namespace reddit_scraper.Tools
 {
     public static class PushShiftApiUrls
     {
@@ -9,10 +9,10 @@ namespace reddit_scraper
         private const string _Comments = "search/comment";
         private const string _CommentIds = "submission/comment_ids";
 #nullable enable
-        public static string GetSubredditPostsUrl(string subreddit, string limit, DateRange dateScope)
+        public static string GetSubredditPostsUrl(string subreddit, DateRange dateScope)
         {
-            var beforeTimestamp = $"&before={DateRange.TotalSecondsFromEpoch(dateScope.End)}&after={DateRange.TotalSecondsFromEpoch(dateScope.Start)}";
-            return string.Format("{0}/{1}/{2}{3}{4}", _Base, _SubredditPostsUrl, $"?subreddit={subreddit}", $"&limit={limit}", beforeTimestamp);
+            var beforeTimestamp = $"&before={DateRange.TotalSecondsFromEpoch(dateScope.Before)}&after={DateRange.TotalSecondsFromEpoch(dateScope.After)}";
+            return string.Format("{0}/{1}/?size=500{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
         }
 #nullable disable
         public static string GetCommentIdsUrl(string postId) =>

@@ -1,11 +1,11 @@
 ﻿using System;
 
-namespace reddit_scraper
+namespace reddit_scraper.Tools
 {
     public struct DateRange
     {
-        public DateTime Start { get; set; }
-        public DateTime End { get; set; }
+        public DateTime After { get; set; }
+        public DateTime Before { get; set; }
         public static double TotalSecondsFromEpoch(DateTime date) =>
             date.Subtract(new DateTime(1970, 1, 1, 0, 0, 0, 0)).TotalSeconds;
         public static DateTime UnixTimeStampToDateTime(double unixTimeStamp) =>

@@ -1,6 +1,9 @@
-﻿using System.Collections.Generic;
+﻿
+using reddit_scraper.DataHolders.CommentResponseParser;
+using reddit_scraper.DataHolders.PostResponseParser;
+using System.Collections.Generic;
 
-namespace reddit_scraper
+namespace reddit_scraper.DataHolders
 {
     public class PostArchive
     {

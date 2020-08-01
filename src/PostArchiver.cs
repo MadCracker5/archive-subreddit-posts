@@ -1,28 +1,44 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
+using reddit_scraper.DataHolders;
+using reddit_scraper.DataHolders.CommentResponseParser;
+using reddit_scraper.DataHolders.PostResponseParser;
+using reddit_scraper.Http;
+using reddit_scraper.Tools;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace reddit_scraper
+namespace reddit_scraper.Src
 {
-    public class RunPostArchiver
+    public interface IPostArchiver
     {
-        public static IConfigurationRoot configuration;
-        private string _subreddit_target;
-        private string _limit_per_request;
-        private string _output_directory;
-        private HttpTools _http_client;
+        public void Run();
+    }
+    public class PostArchiver : IPostArchiver
+    {
+        private readonly string _subreddit_target;
+        private readonly string _output_directory;
+        private readonly IServiceProvider _serviceProvider;
+        public PostArchiver(IServiceProvider provider)
+        {
+            var config = provider.GetService<IConfigurationRoot>();
+            _subreddit_target = config.GetSection("subreddit").Value;
+            _output_directory = config.GetSection("out_directory").Value;
+            _serviceProvider = provider;
+        }
 #nullable enable
         async Task<IEnumerable<Post>?> GetSubredditPostsAsync(DateRange dateScope)
         {
-            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, _limit_per_request, dateScope);
-            var res = await _http_client.Get(url);
+            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, dateScope);
             try {
-                return JsonConvert.DeserializeObject<IEnumerable<Post>>(res);
+                var jsonString = await _serviceProvider
+                    .GetRequiredService<IHttpClientThrottler>()
+                    .MakeRequestAsync(url);
+                return PostResponse.FromJson(jsonString).Posts;
             } catch (Exception e) {
                 Console.WriteLine(e.ToString());
                 return null;
@@ -31,12 +47,14 @@ namespace reddit_scraper
         async Task<UnresolvedPostArhive?> GetCommentIdsAsync(Post post)
         {
             var url = PushShiftApiUrls.GetCommentIdsUrl(post.Id);
-            var res = await _http_client.Get(url);
             try {
+                var jsonString = await _serviceProvider
+                    .GetRequiredService<IHttpClientThrottler>()
+                    .MakeRequestAsync(url);
                 return new UnresolvedPostArhive
                 {
                     Post = post,
-                    CommentIds = JsonConvert.DeserializeObject<string[]>(res)
+                    CommentIds = JsonConvert.DeserializeObject<PushshiftResponse<string>>(jsonString).Data
                 };
             } catch (Exception e) {
                 Console.WriteLine(e.ToString());
@@ -46,9 +64,11 @@ namespace reddit_scraper
         async Task<Comment[]?> GetCommentsAsync(IEnumerable<string> commentIds)
         {
             var url = PushShiftApiUrls.GetCommentsUrl(commentIds);
-            var res = await _http_client.Get(url);
             try {
-                return JsonConvert.DeserializeObject<Comment[]>(res);
+                var jsonString = await _serviceProvider
+                    .GetRequiredService<IHttpClientThrottler>()
+                    .MakeRequestAsync(url);
+                return CommentResponse.FromJson(jsonString).Comments;
             } catch (Exception e) {
                 Console.WriteLine(e.ToString());
                 return null;
@@ -73,6 +93,9 @@ namespace reddit_scraper
         async Task<PostArchive> ResolveComments(UnresolvedPostArhive postArchive)
         {
             var postLength = postArchive.CommentIds.Count();
+            if (postLength == 0) {
+                return new PostArchive { Post = postArchive.Post };
+            }
             if (postLength < 273) {
                 return new PostArchive
                 {
@@ -114,26 +137,29 @@ namespace reddit_scraper
             var currentPostArchives = await GetPostArchives(dateScope);
             while (currentPostArchives != null) {
                 postArchives.AddRange(currentPostArchives);
-                var nextCutoff = currentPostArchives.OrderByDescending(x => x.Post.CreatedUtc).FirstOrDefault().Post.CreatedUtc;
+                var nextCutoff = currentPostArchives.OrderBy(x => x.Post.CreatedUtc).FirstOrDefault().Post.CreatedUtc;
+                if (nextCutoff < DateRange.TotalSecondsFromEpoch(dateScope.After)) {
+                    break;
+                }
                 dateScope = new DateRange
                 {
-                    Start = DateRange.UnixTimeStampToDateTime(nextCutoff),
-                    End = dateScope.End
+                    After = DateRange.UnixTimeStampToDateTime((double)nextCutoff),
+                    Before = dateScope.Before
                 };
                 currentPostArchives = await GetPostArchives(dateScope);
             }
             var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
-            var fn = $"{_output_directory}/{dateScope.Start.ToShortDateString()}.json";
+            var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.zip";
             File.WriteAllText(fn, serializedPostArchive);
             Console.WriteLine($"Wrote {postArchives.Count()} Archives to {fn}");
         }
-
+        /// <summary>
+        /// For each date range in our iterable of date ranges, process up to 5 concurrently into archives corresponding to the day they are.
+        /// </summary>
+        /// <param name="dates"></param>
+        /// <returns></returns>
         async Task GetSubredditArchive(IEnumerable<DateRange> dates)
         {
-            _http_client = new HttpTools();
-            _subreddit_target = configuration.GetSection("subreddit").Value;
-            _limit_per_request = configuration.GetSection("post_limit_per_request").Value;
-            _output_directory = configuration.GetSection("out_directory").Value;
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
@@ -149,39 +175,42 @@ namespace reddit_scraper
             }
             await Task.WhenAll(postArchiveTasks.ToArray());
         }
-#nullable disable
-        static IEnumerable<DateRange> BuildDateRanges()
+        void PrintDefaultInfo(DateTime after, DateTime before)
         {
-            DateTime.Today.AddSeconds(86399);
-            var cutoff = new DateTime(2007, 07, 27);
-            var now = DateTime.Today;
+            var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {after.ToShortDateString()} and before {before.ToShortDateString()}";
+            var secondLine = $"Files will be written to {AppDomain.CurrentDomain.BaseDirectory}{_output_directory}";
+            var stars = string.Join("", Enumerable.Repeat("*", firstLine.Length));
+            Console.WriteLine($"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\n");
+        }
+#nullable disable
+        /// <summary>
+        /// Divide up our operations into days so that each output file is delineated by days.
+        /// </summary>
+        /// <returns></returns>
+        IEnumerable<DateRange> BuildDateRanges()
+        {
+            var config = _serviceProvider.GetService<IConfigurationRoot>();
+            var before = DateConfig.ParseSection(config.GetSection("before"), DateConfigEnum.Before);
+            var after = DateConfig.ParseSection(config.GetSection("after"), DateConfigEnum.After);
+            PrintDefaultInfo(after, before);
+            var cutoff = after;
+            var now = before;
             var total_days = (now - cutoff).TotalDays;
             var date_list = new List<DateRange>();
-            for (var i = 0; i < total_days; i++) {
-                now = now.AddDays(-i);
+            for (var _ = 0; _ < total_days; _++) {
+                now = now.AddDays(-1);
                 date_list.Add(new DateRange
                 {
-                    Start = now,
-                    End = now.AddSeconds(86399)
+                    After = now,
+                    Before = now.AddSeconds(86399)
                 });
             }
             return date_list;
         }
         public void Run()
         {
-            var serviceCollection = new ServiceCollection();
-            ConfigureServices(serviceCollection);
             var dateRanges = BuildDateRanges();
             GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
-        }
-
-        private static void ConfigureServices(IServiceCollection serviceCollection)
-        {
-            configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetParent(AppContext.BaseDirectory).FullName)
-                .AddJsonFile("appsettings.json", false)
-                .Build();
-            serviceCollection.AddSingleton(configuration);
         }
     }
 }
