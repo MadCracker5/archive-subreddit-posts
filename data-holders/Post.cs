@@ -1,6 +1,7 @@
 ﻿
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using reddit_scraper.data_holders;
 using System;
 using System.Globalization;
 
@@ -11,6 +12,9 @@ namespace reddit_scraper.DataHolders.PostResponseParser
     {
         [JsonProperty("data", NullValueHandling = NullValueHandling.Ignore)]
         public Post[] Posts { get; set; }
+
+        [JsonProperty("metadata", NullValueHandling = NullValueHandling.Ignore)]
+        public Metadata Metadata { get; set; }
     }
 #nullable enable
     public partial class Post
