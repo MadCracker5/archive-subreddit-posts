@@ -64,7 +64,9 @@ namespace reddit_scraper.Http
             });
             try {
                 var response = await task;
-                if (response.StatusCode == HttpStatusCode.TooManyRequests) {
+                if (response.IsSuccessStatusCode) {
+                    return await response.Content.ReadAsStringAsync();
+                } else if (response.StatusCode == HttpStatusCode.TooManyRequests) {
                     Console.WriteLine($"\n\nPushshift is complaining about too many requests so now we sleep for a few minutes...");
                     lock (_locker) {
                         _locker.Value = true;
@@ -77,9 +79,6 @@ namespace reddit_scraper.Http
                     Console.WriteLine($"Trying again @ {url}...");
                     var result = await MakeRequestAsync(url);
                     return result;
-                }
-                if (response.IsSuccessStatusCode) {
-                    return await response.Content.ReadAsStringAsync();
                 }
                 if (_verbosity) {
                     Console.WriteLine($"{url}");
