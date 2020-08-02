@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using reddit_scraper.DataHolders;
 using reddit_scraper.DataHolders.CommentResponseParser;
+using reddit_scraper.DataHolders.PostResponseParser;
 using reddit_scraper.Http;
 using reddit_scraper.tools;
 using reddit_scraper.Tools;

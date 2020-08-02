@@ -1,11 +1,11 @@
 ﻿
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-using reddit_scraper.data_holders;
+using reddit_scraper.DataHolders;
 using System;
 using System.Globalization;
 
-namespace reddit_scraper
+namespace reddit_scraper.DataHolders.PostResponseParser
 {
 
     public partial class PostResponse

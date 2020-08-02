@@ -9,10 +9,10 @@ namespace reddit_scraper.Tools
         private const string _Comments = "search/comment";
         private const string _CommentIds = "submission/comment_ids";
 #nullable enable
-        public static string GetSubredditPostsUrl(string subreddit, DateRange dateScope)
+        public static string GetSubredditPostsUrl(string subreddit, long dateScope)
         {
-            var beforeTimestamp = $"&before={DateRange.TotalSecondsFromEpoch(dateScope.Before)}&after={DateRange.TotalSecondsFromEpoch(dateScope.After)}";
-            return string.Format("{0}/{1}/?size=500{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
+            var tt = string.Format("{0}/{1}/?size=500&limit=1000&sort=desc{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", $"&before={dateScope}");
+            return tt;
         }
 #nullable disable
         public static string GetCommentIdsUrl(string postId) =>
