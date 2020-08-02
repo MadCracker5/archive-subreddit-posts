@@ -10,4 +10,4 @@ Project was built in Visual Studio 2019 with .NET Core 3.1 & C# 8.0
 
 Executable can be downloaded [here](https://drive.google.com/file/d/18IRVrxBASVRp0-izXXKXLQce77D2Lv34/view?usp=sharing)
 
-![Usage](https://i.imgur.com/2f00uLc.png)
+![Usage](https://i.imgur.com/y7wIAQ0.png)
