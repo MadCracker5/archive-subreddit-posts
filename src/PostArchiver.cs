@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using reddit_scraper.DataHolders;
 using reddit_scraper.DataHolders.CommentResponseParser;
-using reddit_scraper.DataHolders.PostResponseParser;
 using reddit_scraper.Http;
 using reddit_scraper.tools;
 using reddit_scraper.Tools;
@@ -21,15 +20,16 @@ namespace reddit_scraper.Src
     }
     public class PostArchiver : IPostArchiver
     {
-        private Func<int, int, string> _get_init_string;
-        private readonly bool _verbosity;
         private readonly string _subreddit_target;
         private readonly string _output_directory;
         private readonly IServiceProvider _serviceProvider;
-        private int _current_comment_total;
-        private int _current_post_total;
-        private int _current_date_idx;
-        private int _total_dates;
+        private readonly bool _verbosity;
+        private long NextCreatedUtc;
+        private long Before;
+        private long After;
+        private int TotalDays;
+        private int CurrentDateIdx;
+        private Func<int, int, string> GetInitString;
         public PostArchiver(IServiceProvider provider)
         {
             var config = provider.GetService<IConfigurationRoot>();
@@ -42,14 +42,14 @@ namespace reddit_scraper.Src
             }
         }
 #nullable enable
-        async Task<Post[]?> GetSubredditPostsAsync(DateRange dateScope)
+        async Task<PostResponse?> GetSubredditPostsAsync()
         {
-            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, dateScope);
+            var url = PushShiftApiUrls.GetSubredditPostsUrl(_subreddit_target, NextCreatedUtc);
             try {
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
                     .MakeRequestAsync(url);
-                return PostResponse.FromJson(jsonString).Posts;
+                return PostResponse.FromJson(jsonString);
             } catch (Exception e) {
                 if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
@@ -140,29 +140,19 @@ namespace reddit_scraper.Src
                 Comments = comments.SelectMany(x => x),
             };
         }
-
-        async Task<IEnumerable<PostArchive>?> GetPostArchives(DateRange dateScope)
+        async Task<PostArchive[]> GetPostArchivesFromPosts(Post[] posts)
         {
-            Console.Write($"\nSearching for posts...\t");
-            var posts = await GetSubredditPostsAsync(dateScope);
-            if (posts == null || posts.Length == 0) {
-                return null;
-            }
-            _current_post_total += posts.Length;
-            Console.Write($"{posts.Length} posts found.\n");
-            Console.Write($"\nFinding comment ids for posts...\t");
             var unresolvedPostArchives = await ResolveCommentIds(posts);
             var postsWithComments = unresolvedPostArchives.Where(x => x.CommentIds != null && x.CommentIds.Any()).Select(x => x.CommentIds.Count());
             var numComments = postsWithComments.Any()
                 ? postsWithComments.Aggregate((a, b) => a + b)
                 : 0;
-            _current_comment_total += numComments;
             Console.WriteLine($"\n{numComments} total comment ids found in {posts.Length} posts.");
             var numUnresolved = unresolvedPostArchives.Count();
             var postArchiveTasks = new List<Task<PostArchive>>();
             var numCompleted = 0;
             using var progress = new ProgressBar();
-            Console.Write("\nComment ids -> Comments...\t");
+            Console.Write("\nComment Ids -> Comments...\t");
             foreach (var unresolvedPostArchive in unresolvedPostArchives) {
                 var task = ResolveComments(unresolvedPostArchive);
                 _ = task.ContinueWith(s =>
@@ -172,113 +162,84 @@ namespace reddit_scraper.Src
                 });
                 postArchiveTasks.Add(task);
             }
-            var results = await Task.WhenAll(postArchiveTasks.ToArray());
-            Console.WriteLine($"\nFinished with {numUnresolved} posts.");
-            return results;
+            return await Task.WhenAll(postArchiveTasks.ToArray());
         }
-        async Task GetPostArchivesInRange(DateRange dateScope)
+        async Task GetPostArchives()
         {
             var postArchives = new List<PostArchive>();
-            var currentPostArchives = await GetPostArchives(dateScope);
-            var numIters = 0;
-            while (currentPostArchives != null) {
-                numIters++;
-                postArchives.AddRange(currentPostArchives);
-                var nextCutoff = currentPostArchives.OrderBy(x => x.Post.CreatedUtc).FirstOrDefault().Post.CreatedUtc;
-                if (nextCutoff < DateRange.TotalSecondsFromEpoch(dateScope.After)) {
-                    break;
+            var currentDate = DateRange.UnixTimeStampToDateTime(NextCreatedUtc).Date;
+            while (NextCreatedUtc > After) {
+                Console.Write($"\nSearching for posts...\t");
+                var postResponse = await GetSubredditPostsAsync();
+                if (postResponse == null || postResponse.Posts.Length == 0) {
+                    continue;
                 }
-                NextSubredditDetails(dateScope, numIters);
-                dateScope = new DateRange
-                {
-                    After = dateScope.After,
-                    Before = DateRange.UnixTimeStampToDateTime((double)nextCutoff)
-                };
-                currentPostArchives = await GetPostArchives(dateScope);
-                Console.WriteLine();
+                Console.Write($"{postResponse.Posts.Length} posts found.\n");
+                Console.Write($"\nFinding comment ids for posts...\t");
+                var results = await GetPostArchivesFromPosts(postResponse.Posts);
+                postArchives.AddRange(results);
+                Console.WriteLine($"\nFinished with {postResponse.Posts.Length} posts.");
+                NextCreatedUtc = (long)postResponse.Posts.LastOrDefault().CreatedUtc + 1;
+                var nextUtcDate = DateRange.UnixTimeStampToDateTime(NextCreatedUtc);
+                NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
+                if (currentDate.DayOfYear != nextUtcDate.DayOfYear) {
+                    // TODO: Resolve issue where day doesn't have many posts and the last result of the return value is > 1 days difference with the previous day.
+                    var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == currentDate.DayOfYear).Distinct().Select(x => x).ToList();
+                    var numPostArchivesofDay = postArchivesOfDay.Count();
+                    var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
+                    var numComments = postsWithCommentsOfDay.Any()
+                        ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
+                        : 0;
+                    var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
+                    var fn = $"{_output_directory}/{currentDate.ToShortDateString()}.json";
+                    File.WriteAllText(fn, serializedPostArchive);
+                    Console.WriteLine($"\n\nWrote {numPostArchivesofDay} posts and {numComments} comments in an archive to {fn}");
+                    postArchives = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear != currentDate.DayOfYear).Select(x => x).ToList();
+                    CurrentDateIdx++;
+                    currentDate = nextUtcDate.Date;
+                    NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
+                }
             }
-            var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchives });
-            var fn = $"{_output_directory}/{dateScope.After.ToShortDateString()}.json";
-            File.WriteAllText(fn, serializedPostArchive);
-            Console.WriteLine($"\n\nWrote {postArchives.Count()} Archives to {fn}");
+
         }
-        /// <summary>
-        /// For each date range in our iterable of date ranges, process up to 5 concurrently into archives corresponding to the day they are.
-        /// </summary>
-        /// <param name="dates"></param>
-        /// <returns></returns>
-        async Task GetSubredditArchive(IEnumerable<DateRange> dates)
+
+#nullable disable
+        void BuildDateRanges()
         {
+            var config = _serviceProvider.GetService<IConfigurationRoot>();
+            var beforeDate = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.Before).AddDays(-1).AddSeconds(86399);
+            var afterDate = DateConfig.ParseDateCutoffSection(config, DateConfigEnum.After);
+            Before = DateRange.TotalSecondsFromEpoch(beforeDate);
+            After = DateRange.TotalSecondsFromEpoch(afterDate);
+            NextCreatedUtc = Before;
+            CurrentDateIdx = 1;
+            TotalDays = (int)(beforeDate - afterDate).TotalDays;
+        }
+        public void Run()
+        {
+            BuildDateRanges();
             if (!Directory.Exists(_output_directory)) {
                 Directory.CreateDirectory(_output_directory);
             }
-            _total_dates = dates.Count();
-            _current_date_idx = 0;
-            foreach (var date in dates) {
-                _current_comment_total = 0;
-                _current_post_total = 0;
-                NextSubredditDetails(date);
-                await GetPostArchivesInRange(date);
-                _current_date_idx++;
-            }
+            PrintDefaultInfo();
+            NextSubredditDetails();
+            GetPostArchives().GetAwaiter().GetResult();
         }
-        void PrintDefaultInfo(DateTime after, DateTime before)
+        void PrintDefaultInfo()
         {
-            var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {after.ToShortDateString()} and before {before.ToShortDateString()}";
+            var firstLine = $"Parsing posts & comments for subreddit - {_subreddit_target} after {DateRange.UnixTimeStampToDateTime(After).ToShortDateString()} and before {DateRange.UnixTimeStampToDateTime(Before).ToShortDateString()}";
             var secondLine = $"Files will be written to {AppDomain.CurrentDomain.BaseDirectory}{_output_directory}";
             var stars = string.Join("", Enumerable.Repeat("*", firstLine.Length));
-            _get_init_string = (Func<int, int, string>)((int dateIdx, int totalDates) => $"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\nDate: {dateIdx}/{totalDates}");
+            GetInitString = (Func<int, int, string>)((int dateIdx, int totalDates) => $"{stars}\n{firstLine}\n{secondLine}\n{stars}\n\nDate: {dateIdx}/{totalDates}");
         }
-#nullable disable
-        public void Run()
-        {
-            var dateRanges = BuildDateRanges();
-            GetSubredditArchive(dateRanges).GetAwaiter().GetResult();
-        }
-        /// <summary>
-        /// Divide up our operations into days so that each output file is delineated by days.
-        /// </summary>
-        /// <returns></returns>
-        IEnumerable<DateRange> BuildDateRanges()
-        {
-            var config = _serviceProvider.GetService<IConfigurationRoot>();
-            var before = DateConfig.ParseSection(config.GetSection("before"), DateConfigEnum.Before);
-            var after = DateConfig.ParseSection(config.GetSection("after"), DateConfigEnum.After);
-            PrintDefaultInfo(after, before);
-            var cutoff = after;
-            var now = before;
-            var total_days = (now - cutoff).TotalDays;
-            var date_list = new List<DateRange>();
-            for (var _ = 0; _ < total_days; _++) {
-                now = now.AddDays(-1);
-                date_list.Add(new DateRange
-                {
-                    After = now,
-                    Before = now.AddSeconds(86399)
-                });
-            }
-            return date_list.OrderByDescending(x => x.Before);
-        }
-        void NextSubredditDetails(DateRange dateScope, int numIters = 0)
+        void NextSubredditDetails(long currentDate = 0)
         {
             Console.Clear();
-            Console.WriteLine(_get_init_string(_current_date_idx, _total_dates));
+            Console.WriteLine(GetInitString(CurrentDateIdx, TotalDays));
             Console.WriteLine($"\n{string.Join("", Enumerable.Repeat("/", 44))}\n");
             Console.Write("Date: ");
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"{dateScope.Before.ToShortDateString()}");
-            Console.ResetColor();
-            Console.Write("Round: ");
-            Console.ForegroundColor = ConsoleColor.Blue;
-            Console.WriteLine($"#{numIters}");
-            Console.ResetColor();
-            Console.Write($"Posts: ");
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"{_current_post_total}");
-            Console.ResetColor();
-            Console.Write($"Comments: ");
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"{_current_comment_total}");
+            Console.WriteLine($"{DateRange.UnixTimeStampToDateTime(currentDate == 0 ? NextCreatedUtc : currentDate).ToShortDateString()}");
             Console.ResetColor();
             Console.WriteLine($"\n{string.Join("", Enumerable.Repeat("/", 44))}\n");
         }
