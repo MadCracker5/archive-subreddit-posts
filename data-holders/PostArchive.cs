@@ -1,7 +1,4 @@
-﻿
-using reddit_scraper.data_holders;
-using reddit_scraper.DataHolders.CommentResponseParser;
-using reddit_scraper.DataHolders.PostResponseParser;
+﻿using reddit_scraper.DataHolders.CommentResponseParser;
 using System.Collections.Generic;
 
 namespace reddit_scraper.DataHolders

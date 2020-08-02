@@ -1,8 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json;
 using System;
-using Microsoft.Extensions.Configuration.Binder;
 
 namespace reddit_scraper.http
 {
