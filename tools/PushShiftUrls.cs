@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace reddit_scraper.Tools
 {
@@ -12,9 +11,7 @@ namespace reddit_scraper.Tools
 #nullable enable
         public static string GetSubredditPostsUrl(string subreddit, long dateScope)
         {
-            //var beforeTimestamp = $"&before={dateScope.Before}&after={dateScope.After}";
-            var beforeTimestamp = $"&before={dateScope}";
-            var tt = string.Format("{0}/{1}/?size=100{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", beforeTimestamp);
+            var tt = string.Format("{0}/{1}/?size=500&limit=1000&sort=desc{2}{3}", _Base, _SubredditPostsUrl, $"&subreddit={subreddit}", $"&before={dateScope}");
             return tt;
         }
 #nullable disable
@@ -24,4 +21,3 @@ namespace reddit_scraper.Tools
             $"{_Base}/{_Comments}/?ids={string.Join(',', commentIds)}";
     }
 } // https://api.pushshift.io/reddit/search/submission/?size=100&subreddit=funny&before=1594598441&after=1594598400
-                                                                                         

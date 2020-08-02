@@ -1,8 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using reddit_scraper.Tools;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace reddit_scraper.tools
 {
