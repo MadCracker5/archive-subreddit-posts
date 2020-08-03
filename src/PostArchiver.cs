@@ -145,7 +145,7 @@ namespace reddit_scraper.Src
         {
             var unresolvedPostArchives = await ResolveCommentIds(posts);
             var postsWithComments = unresolvedPostArchives.Where(x => x.CommentIds != null && x.CommentIds.Any()).Select(x => x.CommentIds.Count());
-            var numComments = postsWithComments.Any()
+            var numComments = postsWithComments != null && postsWithComments.Any()
                 ? postsWithComments.Aggregate((a, b) => a + b)
                 : 0;
             Console.WriteLine($"\n{numComments} total comment ids found in {posts.Length} posts.");
@@ -189,7 +189,7 @@ namespace reddit_scraper.Src
                         var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == dateInQuestion.DayOfYear).Distinct().Select(x => x).ToList();
                         var numPostArchivesofDay = postArchivesOfDay.Count();
                         var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
-                        var numComments = postsWithCommentsOfDay.Any()
+                        var numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
                             ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
                             : 0;
                         var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
