@@ -184,18 +184,21 @@ namespace reddit_scraper.Src
                 var nextUtcDate = DateRange.UnixTimeStampToDateTime(NextCreatedUtc);
                 NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
                 if (currentDate.DayOfYear != nextUtcDate.DayOfYear) {
-                    // TODO: Resolve issue where day doesn't have many posts and the last result of the return value is > 1 days difference with the previous day.
-                    var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == currentDate.DayOfYear).Distinct().Select(x => x).ToList();
-                    var numPostArchivesofDay = postArchivesOfDay.Count();
-                    var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
-                    var numComments = postsWithCommentsOfDay.Any()
-                        ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
-                        : 0;
-                    var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
-                    var fn = $"{_output_directory}/{currentDate.ToShortDateString()}.json";
-                    File.WriteAllText(fn, serializedPostArchive);
-                    Console.WriteLine($"\n\nWrote {numPostArchivesofDay} posts and {numComments} comments in an archive to {fn}");
-                    postArchives = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear != currentDate.DayOfYear).Select(x => x).ToList();
+                    var pp = nextUtcDate.DayOfYear - currentDate.DayOfYear;
+                    for (var i = 0; i < currentDate.DayOfYear - nextUtcDate.DayOfYear; i++) {
+                        var dateInQuestion = nextUtcDate.AddDays(i + 1);
+                        var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == dateInQuestion.DayOfYear).Distinct().Select(x => x).ToList();
+                        var numPostArchivesofDay = postArchivesOfDay.Count();
+                        var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
+                        var numComments = postsWithCommentsOfDay.Any()
+                            ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
+                            : 0;
+                        var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
+                        var fn = $"{_output_directory}/{dateInQuestion.ToShortDateString()}.json";
+                        File.WriteAllText(fn, serializedPostArchive);
+                        Console.WriteLine($"\n\nWrote {numPostArchivesofDay} posts and {numComments} comments in an archive to {fn}");
+                    }
+                    postArchives = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == nextUtcDate.DayOfYear).Select(x => x).ToList();
                     CurrentDateIdx++;
                     currentDate = nextUtcDate.Date;
                     NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
