@@ -66,24 +66,24 @@ namespace reddit_scraper.Src
                 return new UnresolvedPostArchive
                 {
                     Post = post,
-                    CommentIds = JsonConvert.DeserializeObject<PushshiftResponse<string>>(jsonString).Data
+                    CommentIds = JsonConvert.DeserializeObject<PushshiftResponse<string>>(jsonString).Data.Distinct()
                 };
             } catch (Exception e) {
                 if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
             }
         }
-        async Task<Comment[]?> GetCommentsAsync(IEnumerable<string> commentIds)
+        async Task<IEnumerable<Comment>> GetCommentsAsync(IEnumerable<string> commentIds)
         {
             var url = PushShiftApiUrls.GetCommentsUrl(commentIds);
             try {
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
                     .MakeRequestAsync(url);
-                return CommentResponse.FromJson(jsonString).Comments.Where(x => x != null).Select(x => x).ToArray();
+                return CommentResponse.FromJson(jsonString).Comments.Where(x => x != null).Select(x => x);
             } catch (Exception e) {
                 if (_verbosity) Console.WriteLine(e.ToString());
-                return null;
+                return Enumerable.Empty<Comment>();
             }
         }
         async Task<IEnumerable<UnresolvedPostArchive>> ResolveCommentIds(Post[] posts)
@@ -114,11 +114,11 @@ namespace reddit_scraper.Src
         async Task<PostArchive> ResolveComments(UnresolvedPostArchive postArchive)
         {
             //return new PostArchive { Post = postArchive.Post, Comments = new Comment[] { } };
-            var postLength = postArchive.CommentIds.Count();
-            if (postLength == 0) {
+            var numCommentIds = postArchive.CommentIds.Count();
+            if (numCommentIds == 0) {
                 return new PostArchive { Post = postArchive.Post, Comments = Enumerable.Empty<Comment>() };
             }
-            if (postLength < 273) {
+            if (numCommentIds < 273) {
                 var earlyComments = await GetCommentsAsync(postArchive.CommentIds);
                 return new PostArchive
                 {
@@ -126,19 +126,26 @@ namespace reddit_scraper.Src
                     Comments = earlyComments ?? Enumerable.Empty<Comment>()
                 };
             }
-            var chopper = (float)postLength / 270f;
-            var cutOff = (int)Math.Round((float)postLength / chopper);
-            var commentTasks = new List<Task<Comment[]?>>();
-            for (var i = 0; i < chopper; i++) {
-                var cur_sel = postArchive.CommentIds.Skip(i * cutOff).Take((i + 1) * cutOff);
-                var task = GetCommentsAsync(cur_sel.ToArray());
-                commentTasks.Add(task);
+            var currentCommentIdList = new List<string>();
+            var commentTasks = new List<Task<IEnumerable<Comment>>>();
+            var comments = new List<Comment>();
+            var i = 0;
+            foreach (var commentId in postArchive.CommentIds) {
+                currentCommentIdList.Add(commentId);
+                if (i != 0 && (i % 270 == 0 || i == numCommentIds - 1)) {
+                    commentTasks.Add(GetCommentsAsync(currentCommentIdList));
+                    currentCommentIdList = new List<string>();
+                }
+                if (commentTasks.Count() >= 5 || (i == numCommentIds - 1 && commentTasks.Any())) {
+                    comments.AddRange((await Task.WhenAll(commentTasks)).SelectMany(x => x));
+                    commentTasks = new List<Task<IEnumerable<Comment>>>();
+                }
+                i++;
             }
-            var comments = await Task.WhenAll(commentTasks.ToArray());
             return new PostArchive
             {
                 Post = postArchive.Post,
-                Comments = comments.SelectMany(x => x ?? Enumerable.Empty<Comment>()),
+                Comments = comments
             };
         }
         async Task<PostArchive[]> GetPostArchivesFromPosts(Post[] posts)
@@ -191,15 +198,12 @@ namespace reddit_scraper.Src
                             continue;
                         }
                         var numPostArchivesofDay = postArchivesOfDay.Count();
-                        int numComments = 0;
-                        try {
-                            var postsWithCommentsOfDay = postArchivesOfDay
+                        var postsWithCommentsOfDay = postArchivesOfDay
                             .Where(x => x != null && x.Comments != null && x.Comments.Any())
                             .Select(x => x.Comments.Count());
-                            numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
-                                ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
-                                : 0;
-                        } catch (Exception) { }
+                        var numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
+                            ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
+                            : 0;
                         var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
                         var fn = $"{_output_directory}/{dateInQuestion.ToShortDateString()}.json";
                         File.WriteAllText(fn, serializedPostArchive);
