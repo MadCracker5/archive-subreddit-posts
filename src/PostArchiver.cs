@@ -187,6 +187,9 @@ namespace reddit_scraper.Src
                     for (var i = 0; i < currentDate.DayOfYear - nextUtcDate.DayOfYear; i++) {
                         var dateInQuestion = nextUtcDate.AddDays(i + 1);
                         var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == dateInQuestion.DayOfYear).Distinct().Select(x => x).ToList();
+                        if (postArchivesOfDay == null || !postArchivesOfDay.Any()) {
+                            continue;
+                        }
                         var numPostArchivesofDay = postArchivesOfDay.Count();
                         var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
                         var numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
