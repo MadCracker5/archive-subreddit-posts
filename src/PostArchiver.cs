@@ -80,7 +80,7 @@ namespace reddit_scraper.Src
                 var jsonString = await _serviceProvider
                     .GetRequiredService<IHttpClientThrottler>()
                     .MakeRequestAsync(url);
-                return CommentResponse.FromJson(jsonString).Comments;
+                return CommentResponse.FromJson(jsonString).Comments.Where(x => x != null).Select(x => x).ToArray();
             } catch (Exception e) {
                 if (_verbosity) Console.WriteLine(e.ToString());
                 return null;
@@ -116,7 +116,7 @@ namespace reddit_scraper.Src
             //return new PostArchive { Post = postArchive.Post, Comments = new Comment[] { } };
             var postLength = postArchive.CommentIds.Count();
             if (postLength == 0) {
-                return new PostArchive { Post = postArchive.Post };
+                return new PostArchive { Post = postArchive.Post, Comments = Enumerable.Empty<Comment>() };
             }
             if (postLength < 273) {
                 var earlyComments = await GetCommentsAsync(postArchive.CommentIds);
@@ -138,7 +138,7 @@ namespace reddit_scraper.Src
             return new PostArchive
             {
                 Post = postArchive.Post,
-                Comments = comments.SelectMany(x => x),
+                Comments = comments.SelectMany(x => x ?? Enumerable.Empty<Comment>()),
             };
         }
         async Task<PostArchive[]> GetPostArchivesFromPosts(Post[] posts)
@@ -191,10 +191,15 @@ namespace reddit_scraper.Src
                             continue;
                         }
                         var numPostArchivesofDay = postArchivesOfDay.Count();
-                        var postsWithCommentsOfDay = postArchivesOfDay.Where(x => x.Comments != null && x.Comments.Any()).Select(x => x.Comments.Count());
-                        var numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
-                            ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
-                            : 0;
+                        int numComments = 0;
+                        try {
+                            var postsWithCommentsOfDay = postArchivesOfDay
+                            .Where(x => x != null && x.Comments != null && x.Comments.Any())
+                            .Select(x => x.Comments.Count());
+                            numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
+                                ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
+                                : 0;
+                        } catch (Exception) { }
                         var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
                         var fn = $"{_output_directory}/{dateInQuestion.ToShortDateString()}.json";
                         File.WriteAllText(fn, serializedPostArchive);
