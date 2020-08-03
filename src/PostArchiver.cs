@@ -184,7 +184,6 @@ namespace reddit_scraper.Src
                 var nextUtcDate = DateRange.UnixTimeStampToDateTime(NextCreatedUtc);
                 NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
                 if (currentDate.DayOfYear != nextUtcDate.DayOfYear) {
-                    var pp = nextUtcDate.DayOfYear - currentDate.DayOfYear;
                     for (var i = 0; i < currentDate.DayOfYear - nextUtcDate.DayOfYear; i++) {
                         var dateInQuestion = nextUtcDate.AddDays(i + 1);
                         var postArchivesOfDay = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == dateInQuestion.DayOfYear).Distinct().Select(x => x).ToList();
