@@ -202,15 +202,16 @@ namespace reddit_scraper.Src
                             .Where(x => x != null && x.Comments != null && x.Comments.Any())
                             .Select(x => x.Comments.Count());
                         var numComments = postsWithCommentsOfDay != null && postsWithCommentsOfDay.Any()
-                            ? postsWithCommentsOfDay.Aggregate((a, b) => a + b)
+                            ? postsWithCommentsOfDay
+                                .Aggregate((a, b) => a + b)
                             : 0;
                         var serializedPostArchive = JsonConvert.SerializeObject(new Dictionary<string, List<PostArchive>> { ["posts"] = postArchivesOfDay });
                         var fn = $"{_output_directory}/{dateInQuestion.ToShortDateString()}.json";
                         File.WriteAllText(fn, serializedPostArchive);
                         Console.WriteLine($"\n\nWrote {numPostArchivesofDay} posts and {numComments} comments in an archive to {fn}");
+                        CurrentDateIdx++;
                     }
                     postArchives = postArchives.Where(x => DateRange.UnixTimeStampToDateTime(x.Post.CreatedUtc).DayOfYear == nextUtcDate.DayOfYear).Select(x => x).ToList();
-                    CurrentDateIdx++;
                     currentDate = nextUtcDate.Date;
                     NextSubredditDetails(DateRange.TotalSecondsFromEpoch(currentDate));
                 }
