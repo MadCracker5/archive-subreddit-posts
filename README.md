@@ -6,9 +6,9 @@ Build the project (or just use the prebuilt version in the ./_build/ folder), sp
 
 It outputs one JSON file per day in the range, where each is a list of posts for that day, where each post has a list of ever comment on the post. No data is omitted from what the API returns (so you could re-create the entire subreddit if you wanted).
 
-# Note:
-The bottleneck in performance is the rate that pushshift limits you to. Will look at what ways there are around this at some point but in the meantime your best bet for faster archiving would be something like some # of containers or vms with vpns etc.
-
 Project was built in Visual Studio 2019 with .NET Core 3.1 & C# 8.0
 
 ![Usage](https://i.imgur.com/y7wIAQ0.png)
+
+### Note:
+The bottleneck in speed of archiving is the rate that pushshift limits you to. Will look at what ways there are around this at some point but in the meantime your best bet for faster archiving would be to run this in some # of containers or vms.
